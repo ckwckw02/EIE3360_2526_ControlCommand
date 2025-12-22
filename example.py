@@ -36,24 +36,24 @@ elif len(sys.argv) > 1:
 
 
 def demo_hex():
-    hexstr = send_control(1000, 1500, 2000, 2500, 0, 1, mode='hex')
+    hexstr = send_control(1000, 1500, 1000, 1400, 0, 1, mode='hex')
     print('Hex frame (no header/footer shown in payload):', hexstr)
 
 
 def demo_once():
     print('Sending one frame...')
-    send_control(1000, 1500, 2000, 2500, 0, 1, mode='once', port=PORT)
+    send_control(1000, 1500, 1000, 1400, 0, 1, mode='once', port=PORT)
 
 
 def demo_loop():
     print('Starting send loop (press Ctrl-C to stop)')
-    send_control(1000, 1500, 2000, 2500, 0, 1, mode='loop', interval=1.0, port=PORT)
+    send_control(1000, 1500, 1000, 1400, 0, 1, mode='loop', interval=1.0, port=PORT)
 
 
 if __name__ == '__main__':
-    demo_hex()
     time.sleep(0.2)
+    # demo_hex()
     # Uncomment to actually send once (requires transmitter port available):
-    # demo_once()
+    demo_once()
     # Uncomment to start continuous send loop:
     # demo_loop()
