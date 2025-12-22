@@ -18,12 +18,21 @@ except Exception:
     # Fallback: load by filename using importlib (works even if you named it 3360lib.py)
     import importlib.util
     import pathlib
+    import os
 
     lib_path = pathlib.Path(__file__).resolve().parent / 'lib3360.py'
     spec = importlib.util.spec_from_file_location('lib3360', str(lib_path))
     lib = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(lib)
     send_control = lib.send_control
+
+# Optionally allow overriding serial port via environment variable or CLI
+PORT = None
+import os
+if os.getenv('SENDSERIAL_PORT'):
+    PORT = os.getenv('SENDSERIAL_PORT')
+elif len(sys.argv) > 1:
+    PORT = sys.argv[1]
 
 
 def demo_hex():
@@ -33,12 +42,12 @@ def demo_hex():
 
 def demo_once():
     print('Sending one frame...')
-    send_control(1000, 1500, 2000, 2500, 0, 1, mode='once')
+    send_control(1000, 1500, 2000, 2500, 0, 1, mode='once', port=PORT)
 
 
 def demo_loop():
     print('Starting send loop (press Ctrl-C to stop)')
-    send_control(1000, 1500, 2000, 2500, 0, 1, mode='loop', interval=1.0)
+    send_control(1000, 1500, 2000, 2500, 0, 1, mode='loop', interval=1.0, port=PORT)
 
 
 if __name__ == '__main__':

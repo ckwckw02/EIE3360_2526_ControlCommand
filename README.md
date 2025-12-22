@@ -192,6 +192,27 @@ Overriding the port or other parameters
 - To override which serial port is used, pass `port='COM14'` (Windows) or `port='/dev/ttyUSB0'` (Linux) to `send_control`.
 - To change the send frequency in loop mode, set `interval=` to the number of seconds between sends.
 
+Important: where to change the configured port
+- The default serial port values live in `transmitter.py` and `receiver.py` as `TX_PORT_WIN`, `TX_PORT_LIN`, `RX_PORT_WIN`, `RX_PORT_LIN` near the top of each file. If you edit those files to change the port, the library and examples will pick up the new values when imported.
+- If you run `example.py` (or your own script) from a different working directory, the library now reads `transmitter.py` by file path relative to `lib3360.py`, so changes to `transmitter.py` will be used regardless of cwd.
+- Alternatively you can override the port at runtime using the `SENDSERIAL_PORT` environment variable or by passing a port string as the first command-line argument to `example.py`.
+
+Environment variable example (Windows cmd.exe):
+```bat
+set SENDSERIAL_PORT=COM14
+python example.py
+```
+Linux/macOS:
+```sh
+export SENDSERIAL_PORT=/dev/ttyUSB0
+python3 example.py
+```
+
+Command-line override example:
+```sh
+python example.py COM14
+```
+
 Importing when module names might conflict or are not on `PYTHONPATH`
 
 The library `lib3360.py` is designed to be imported normally with `from lib3360 import send_control` when the file is in the same folder as your script. If you named the file `3360lib.py` (starts with a digit) or your script lives in a different folder, use one of the following approaches.

@@ -10,12 +10,26 @@ Functions:
 This file expects `transmitter.py` to be in the same directory.
 """
 from typing import Optional
+from pathlib import Path
+import importlib.util
+import os
 
-try:
-    # local import from same folder
-    from transmitter import send_control_command, send_control_loop, build_packet
-except Exception as e:
-    raise ImportError('lib3360 requires transmitter.py in the same directory') from e
+# Dynamically load transmitter.py from the same directory as this file. This
+# ensures callers can run example scripts from any working directory and still
+# pick up the port configuration present in `transmitter.py`.
+here = Path(__file__).resolve().parent
+transmitter_path = here / 'transmitter.py'
+if not transmitter_path.exists():
+    raise ImportError(f"transmitter.py not found next to {__file__}")
+
+spec = importlib.util.spec_from_file_location('transmitter', str(transmitter_path))
+trans_mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(trans_mod)
+
+# Pull required functions from the loaded module
+send_control_command = trans_mod.send_control_command
+send_control_loop = trans_mod.send_control_loop
+build_packet = trans_mod.build_packet
 
 
 def send_control(m1: int, m2: int, s1: int, s2: int,
@@ -41,9 +55,16 @@ def send_control(m1: int, m2: int, s1: int, s2: int,
 
     if mode == 'once':
         # call transmitter's function which opens/closes port for us
+        # allow environment variable override if port not explicitly passed
+        env_port = os.getenv('SENDSERIAL_PORT')
+        if port is None and env_port:
+            port = env_port
         return send_control_command(int(m1), int(m2), int(s1), int(s2), int(dir1), int(dir2), port=port)
 
     # mode == 'loop'
+    env_port = os.getenv('SENDSERIAL_PORT')
+    if port is None and env_port:
+        port = env_port
     return send_control_loop(int(m1), int(m2), int(s1), int(s2), int(dir1), int(dir2), interval=interval, port=port)
 
 
