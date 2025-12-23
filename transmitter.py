@@ -41,6 +41,18 @@ FRAME_HEADER = b"\x0D"
 FRAME_FOOTER = b"\x20"
 # -------------------------------------------------------------------------------
 
+# Module-level persistent state. Callers can update only the values they want
+# by passing `None` for unchanged parameters (e.g. `motor(None, 50000)`).
+# Defaults chosen to match example values used previously.
+STATE = {
+	'm1': 1000,
+	'm2': 1500,
+	's1': 1000,
+	's2': 1400,
+	'd1': 0,
+	'd2': 1,
+}
+
 
 def detect_port():
 	os_name = platform.system().lower()
@@ -74,6 +86,82 @@ def build_packet(m1, m2, s1, s2, dir_m1_flag=0, dir_m2_flag=0):
 
 def bytes_to_hex(b: bytes) -> str:
 	return b.hex()
+
+
+def _update_state(m1=None, m2=None, s1=None, s2=None, d1=None, d2=None):
+	"""Update the persistent `STATE` with any non-None parameters."""
+	if m1 is not None:
+		STATE['m1'] = int(m1)
+	if m2 is not None:
+		STATE['m2'] = int(m2)
+	if s1 is not None:
+		STATE['s1'] = int(s1)
+	if s2 is not None:
+		STATE['s2'] = int(s2)
+	if d1 is not None:
+		STATE['d1'] = 1 if int(d1) & 0x1 else 0
+	if d2 is not None:
+		STATE['d2'] = 1 if int(d2) & 0x1 else 0
+
+
+def motor(m1=None, m2=None, dir1=None, dir2=None, mode='once', interval=1.0, port=None):
+	"""Update motor values/directions and send according to `mode`.
+
+	Parameters may be `None` to keep previous value (state memory).
+	- `mode`: 'once' | 'loop' | 'hex'
+	- When `mode=='hex'` returns the full frame hex string (header+payload+footer)
+	- When `mode=='once'` sends a single frame (opens/closes port)
+	- When `mode=='loop'` opens port once and sends repeatedly until Ctrl-C
+	"""
+	if mode not in ('once', 'loop', 'hex'):
+		raise ValueError("mode must be 'once', 'loop' or 'hex'")
+
+	# Update only the motor-related parts of the state
+	_update_state(m1=m1, m2=m2, d1=dir1, d2=dir2)
+
+	if mode == 'hex':
+		frame = build_packet(STATE['m1'], STATE['m2'], STATE['s1'], STATE['s2'], STATE['d1'], STATE['d2'])
+		return frame.hex()
+
+	if mode == 'once':
+		env_port = os.getenv('SENDSERIAL_PORT')
+		if port is None and env_port:
+			port = env_port
+		return send_control_command(STATE['m1'], STATE['m2'], STATE['s1'], STATE['s2'], STATE['d1'], STATE['d2'], port=port)
+
+	# loop
+	env_port = os.getenv('SENDSERIAL_PORT')
+	if port is None and env_port:
+		port = env_port
+	return send_control_loop(STATE['m1'], STATE['m2'], STATE['s1'], STATE['s2'], STATE['d1'], STATE['d2'], interval=interval, port=port)
+
+
+def servo(s1=None, s2=None, mode='once', interval=1.0, port=None):
+	"""Update servo values and send according to `mode`.
+
+	Parameters may be `None` to keep previous value (state memory).
+	"""
+	if mode not in ('once', 'loop', 'hex'):
+		raise ValueError("mode must be 'once', 'loop' or 'hex'")
+
+	# Update only the servo-related parts of the state
+	_update_state(s1=s1, s2=s2)
+
+	if mode == 'hex':
+		frame = build_packet(STATE['m1'], STATE['m2'], STATE['s1'], STATE['s2'], STATE['d1'], STATE['d2'])
+		return frame.hex()
+
+	if mode == 'once':
+		env_port = os.getenv('SENDSERIAL_PORT')
+		if port is None and env_port:
+			port = env_port
+		return send_control_command(STATE['m1'], STATE['m2'], STATE['s1'], STATE['s2'], STATE['d1'], STATE['d2'], port=port)
+
+	# loop
+	env_port = os.getenv('SENDSERIAL_PORT')
+	if port is None and env_port:
+		port = env_port
+	return send_control_loop(STATE['m1'], STATE['m2'], STATE['s1'], STATE['s2'], STATE['d1'], STATE['d2'], interval=interval, port=port)
 
 
 def send_control_command(m1, m2, s1, s2, dir1, dir2, port=None):

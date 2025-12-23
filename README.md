@@ -9,7 +9,9 @@ Files
   the top of the file.
 - `receiver.py` — continuous reader that resynchronizes the incoming stream,
   verifies header/footer and prints parsed values.
-- `lib3360.py` — convenience library exposing a single-call API `send_control(...)`.
+- `lib3360.py` — convenience library exposing `motor(...)` and `servo(...)` wrappers
+  (replaces the older single-call `send_control(...)` API). Backwards compatibility
+  to `send_control` is retained.
 - `3360lib.py` — compatibility wrapper that loads `lib3360.py` by path.
 - `example.py` — small demo showing how to get the hex frame or send frames.
 
@@ -64,15 +66,24 @@ python3 receiver.py
 ```
 
 Using the library API in other Python code
-- Import `lib3360.send_control` and call one simple function:
+- Import `motor` and `servo` from `lib3360` and call them. The `transmitter.py`
+  module now keeps a small in-memory state for the four PWM values and two
+  direction flags. Passing `None` for a parameter leaves the previous value
+  unchanged (e.g. `motor(None, 50000)` updates only `m2`).
+
 ```py
-from lib3360 import send_control
-# send one frame
-send_control(1000,1500,2000,2500, 0,1, mode='once')
-# get hex without sending
-hexstr = send_control(1000,1500,2000,2500, 0,1, mode='hex')
-# start continuous send loop (blocks until Ctrl-C)
-send_control(1000,1500,2000,2500, 0,1, mode='loop', interval=1.0)
+from lib3360 import motor, servo
+
+# Set servo values (no send) and request the full frame hex without transmitting
+servo(1000, 1400, mode='hex')
+hexstr = motor(1000, 1500, dir1=0, dir2=1, mode='hex')
+print('Frame hex:', hexstr)
+
+# Update only motor2 and send once (motor1 remains unchanged)
+motor(None, 50000, mode='once')
+
+# Start a continuous send loop using current state (Ctrl-C to stop)
+motor(1200, None, mode='loop', interval=1.0)
 ```
 
 Expected behavior & outputs
@@ -163,33 +174,40 @@ If you want to create a new Python script from scratch and use the library, star
 1) Get the raw frame hex (no serial I/O)
 ```py
 # file: send_hex.py
-from lib3360 import send_control
+from lib3360 import motor, servo
 
-hexstr = send_control(1000, 1500, 2000, 2500, 0, 1, mode='hex')
+# update servo state (no transmit)
+servo(2000, 2500, mode='hex')
+# update motor state and get hex
+hexstr = motor(1000, 1500, dir1=0, dir2=1, mode='hex')
 print('Frame hex:', hexstr)  # -> 0d03e805dc07d009c40220
 ```
 
 2) Send one frame (opens and closes the port)
 ```py
 # file: send_once.py
-from lib3360 import send_control
+from lib3360 import motor, servo
 
+# first update servo state (no transmit), then send once via motor()
+servo(2000, 2500, mode='hex')
 # If the module can't find the default port, you can pass `port='COM14'` or '/dev/ttyUSB0'
-send_control(1000, 1500, 2000, 2500, 0, 1, mode='once', port=None)
+motor(1000, 1500, dir1=0, dir2=1, mode='once', port=None)
 ```
 Expected behavior: the script prints the port-opening message and `Sent 11 bytes -> 0d03...20`.
 
 3) Start an indefinite send loop (stop with Ctrl-C)
 ```py
 # file: send_loop.py
-from lib3360 import send_control
+from lib3360 import motor, servo
 
-send_control(1000, 1500, 2000, 2500, 0, 1, mode='loop', interval=1.0)
+# update servo state (no transmit) then start motor loop which repeatedly sends
+servo(2000, 2500, mode='hex')
+motor(1000, 1500, dir1=0, dir2=1, mode='loop', interval=1.0)
 ```
 Expected behavior: opens the port once and prints one `Sent ...` line per `interval` second until you press Ctrl-C.
 
 Overriding the port or other parameters
-- To override which serial port is used, pass `port='COM14'` (Windows) or `port='/dev/ttyUSB0'` (Linux) to `send_control`.
+- To override which serial port is used, pass `port='COM14'` (Windows) or `port='/dev/ttyUSB0'` (Linux) to `motor()` or `servo()` (whichever you call to perform the send).
 - To change the send frequency in loop mode, set `interval=` to the number of seconds between sends.
 
 Important: where to change the configured port
@@ -215,13 +233,15 @@ python example.py COM14
 
 Importing when module names might conflict or are not on `PYTHONPATH`
 
-The library `lib3360.py` is designed to be imported normally with `from lib3360 import send_control` when the file is in the same folder as your script. If you named the file `3360lib.py` (starts with a digit) or your script lives in a different folder, use one of the following approaches.
+The library `lib3360.py` is designed to be imported normally with `from lib3360 import motor, servo` when the file is in the same folder as your script. If you named the file `3360lib.py` (starts with a digit) or your script lives in a different folder, use one of the following approaches.
 
 Option A — plain import (recommended when files are colocated)
 ```py
 # send_once.py (in same directory)
-from lib3360 import send_control
-send_control(1000,1500,2000,2500, 0,1, mode='once')
+from lib3360 import motor, servo
+# update servo state (no transmit) then send once via motor()
+servo(2000, 2500, mode='hex')
+motor(1000,1500, dir1=0, dir2=1, mode='once')
 ```
 
 Option B — import by file path with importlib (works with any filename)
@@ -235,16 +255,18 @@ spec = importlib.util.spec_from_file_location('mylib', str(lib_path))
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
-# `3360lib.py` forwards `send_control`, so call it directly
-send_control = mod.send_control
-send_control(1000,1500,2000,2500, 0,1, mode='once')
+# `3360lib.py` forwards motor/servo, so call them directly
+motor = mod.motor
+servo = mod.servo
+servo(2000,2500, mode='hex')
+motor(1000,1500, dir1=0, dir2=1, mode='once')
 ```
 
 Option C — add the library folder to `PYTHONPATH` at runtime
 ```py
 import sys
 sys.path.append(r'C:\path\to\SendSerial')  # or '/home/user/SendSerial'
-from lib3360 import send_control
+from lib3360 import motor, servo
 ```
 
 Debugging example runs

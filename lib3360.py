@@ -30,6 +30,9 @@ spec.loader.exec_module(trans_mod)
 send_control_command = trans_mod.send_control_command
 send_control_loop = trans_mod.send_control_loop
 build_packet = trans_mod.build_packet
+# New stateful convenience functions
+motor = getattr(trans_mod, 'motor', None)
+servo = getattr(trans_mod, 'servo', None)
 
 
 def send_control(m1: int, m2: int, s1: int, s2: int,
@@ -69,3 +72,5 @@ def send_control(m1: int, m2: int, s1: int, s2: int,
 
 
 __all__ = ['send_control']
+if motor is not None and servo is not None:
+    __all__.extend(['motor', 'servo'])
