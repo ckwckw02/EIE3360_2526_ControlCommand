@@ -21,6 +21,7 @@ import platform
 import struct
 import sys
 import time
+import os
 
 try:
 	import serial

@@ -86,6 +86,12 @@ motor(None, 50000, mode='once')
 motor(1200, None, mode='loop', interval=1.0)
 ```
 
+**Stateful behaviour**
+- **In-process memory:** `motor()` and `servo()` keep a small in-memory state for `m1, m2, s1, s2, d1, d2` while your Python process runs. Calling `motor(None, 50000)` updates only `m2` in that same process; it does not persist across separate program runs.
+- **Pass `None` to keep previous value:** If you call `motor(40000, 20000, dir1=1, dir2=1)` and then later call `motor(40000, None, dir1=1, dir2=1)`, the second call will keep `m2=20000` unchanged and only update `m1` (and directions). This is supported and recommended when you only want to change one motor.
+- **Troubleshooting:** If you observe that a value unexpectedly becomes zero or stops after calling with `None`, ensure both calls occur in the same Python process (same script or interactive session). Re-running a separate script resets the module state to defaults.
+
+
 Expected behavior & outputs
 - `transmitter.py` (default, continuous loop) will print lines like:
   `Opening serial port: COM14 @ 115200 — sending every 1.0s. Ctrl-C to stop`
