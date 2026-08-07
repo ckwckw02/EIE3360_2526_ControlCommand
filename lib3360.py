@@ -1,76 +1,134 @@
-"""lib3360.py
+"""lib3360.py — Linux-only serial control library for EIE3360.
 
-Small convenience library wrapping the existing `transmitter.py` API so callers
-can send a control frame with one function call.
+Sends 11-byte control frames over UART to an STM32 microcontroller.
+Receives encoder values from the same port in format: [m1,m2]
+
+Frame format (11 bytes, fixed):
+    Header: 0x0D | Payload (9 bytes) | Footer: 0x20
+
+Payload layout (big-endian):
+    m1_pwm: uint16  — Motor 1 PWM magnitude (0–65535)
+    m2_pwm: uint16  — Motor 2 PWM magnitude (0–65535)
+    s1_pwm: uint16  — Servo 1 PWM value (0–65535)
+    s2_pwm: uint16  — Servo 2 PWM value (0–65535)
+    dir_byte: uint8  — Direction flags
+        bit 0: motor1 direction (0 = backward, 1 = forward)
+        bit 1: motor2 direction (0 = backward, 1 = forward)
+
+Motor values are signed integers in range [-65535, +65535]:
+    Positive (+) → forward, Negative (-) → backward.
 
 Functions:
-- send_control(m1,m2,s1,s2,dir1,dir2, mode='once', interval=1.0, port=None)
-    mode: 'once' | 'loop' | 'hex' ('hex' returns hex string without sending)
+    motor(m1, m2) — Send motor control command. Pass None to keep previous value.
+    servo(s1, s2) — Send servo control command. Pass None to keep previous value.
+    get_encoder()  — Read encoder values from serial port, returns (m1, m2).
 
-This file expects `transmitter.py` to be in the same directory.
+Both functions share the same serial port defined by DEFAULT_PORT at the top of this file.
 """
+
+import re
+import serial
+import struct
 from typing import Optional
-from pathlib import Path
-import importlib.util
-import os
 
-# Dynamically load transmitter.py from the same directory as this file. This
-# ensures callers can run example scripts from any working directory and still
-# pick up the port configuration present in `transmitter.py`.
-here = Path(__file__).resolve().parent
-transmitter_path = here / 'transmitter.py'
-if not transmitter_path.exists():
-    raise ImportError(f"transmitter.py not found next to {__file__}")
+# Shared serial port for all commands
+DEFAULT_PORT = "/dev/ttyTHS1"
+BAUDRATE = 115200
+FRAME_HEADER = 0x0D
+FRAME_FOOTER = 0x20
 
-spec = importlib.util.spec_from_file_location('transmitter', str(transmitter_path))
-trans_mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(trans_mod)
-
-# Pull required functions from the loaded module
-send_control_command = trans_mod.send_control_command
-send_control_loop = trans_mod.send_control_loop
-build_packet = trans_mod.build_packet
-# New stateful convenience functions
-motor = getattr(trans_mod, 'motor', None)
-servo = getattr(trans_mod, 'servo', None)
+# Internal state (persists across calls)
+_state = {
+    "m1": 0,
+    "m2": 0,
+    "s1": 0,
+    "s2": 0,
+}
 
 
-def send_control(m1: int, m2: int, s1: int, s2: int,
-                 dir1: int, dir2: int,
-                 mode: str = 'once',
-                 interval: float = 1.0,
-                 port: Optional[str] = None):
-    """High-level single-call API.
+def _send_frame() -> None:
+    """Build and send the current frame. Called once per motor()/servo()."""
+    m1 = _state["m1"]
+    m2 = _state["m2"]
+    s1 = _state["s1"]
+    s2 = _state["s2"]
 
-    - dir1, dir2: 0 = backward, 1 = forward
-    - mode: 'once' (default) sends a single frame and returns None
-            'loop' opens the port and sends repeatedly until Ctrl-C
-            'hex' returns the hex string for the frame without sending
-    - interval: seconds between sends when mode=='loop'
-    - port: optional serial port override
+    # Direction bits: positive/zero = forward (1), negative = backward (0)
+    d1 = 1 if m1 >= 0 else 0
+    d2 = 1 if m2 >= 0 else 0
+
+    pwm1 = abs(m1) & 0xFFFF
+    pwm2 = abs(m2) & 0xFFFF
+
+    payload = struct.pack(">HHHHB", pwm1, pwm2, s1 & 0xFFFF, s2 & 0xFFFF, d1 | (d2 << 1))
+    frame = bytes([FRAME_HEADER]) + payload + bytes([FRAME_FOOTER])
+
+    ser = serial.Serial(DEFAULT_PORT, BAUDRATE, timeout=1)
+    try:
+        ser.write(frame)
+    finally:
+        ser.close()
+
+
+def motor(m1: Optional[int] = None, m2: Optional[int] = None) -> None:
+    """Send motor control command (PWM values -65535 to +65535).
+
+    Positive value → forward, negative value → backward.
+    Pass None for a channel to keep its previous value unchanged.
+
+    Args:
+        m1: Motor 1 PWM (-65535 .. +65535), or None.
+        m2: Motor 2 PWM (-65535 .. +65535), or None.
     """
-    if mode not in ('once', 'loop', 'hex'):
-        raise ValueError("mode must be 'once', 'loop' or 'hex'")
+    if m1 is not None:
+        _state["m1"] = max(-65535, min(65535, int(m1)))
+    if m2 is not None:
+        _state["m2"] = max(-65535, min(65535, int(m2)))
 
-    if mode == 'hex':
-        frame = build_packet(int(m1), int(m2), int(s1), int(s2), int(dir1), int(dir2))
-        return frame.hex()
-
-    if mode == 'once':
-        # call transmitter's function which opens/closes port for us
-        # allow environment variable override if port not explicitly passed
-        env_port = os.getenv('SENDSERIAL_PORT')
-        if port is None and env_port:
-            port = env_port
-        return send_control_command(int(m1), int(m2), int(s1), int(s2), int(dir1), int(dir2), port=port)
-
-    # mode == 'loop'
-    env_port = os.getenv('SENDSERIAL_PORT')
-    if port is None and env_port:
-        port = env_port
-    return send_control_loop(int(m1), int(m2), int(s1), int(s2), int(dir1), int(dir2), interval=interval, port=port)
+    _send_frame()
 
 
-__all__ = ['send_control']
-if motor is not None and servo is not None:
-    __all__.extend(['motor', 'servo'])
+def servo(s1: Optional[int] = None, s2: Optional[int] = None) -> None:
+    """Send servo control command (PWM values 0–65535).
+
+    Pass None for a channel to keep its previous value unchanged.
+
+    Args:
+        s1: Servo 1 PWM value (e.g. 500–2500), or None.
+        s2: Servo 2 PWM value, or None.
+    """
+    if s1 is not None:
+        _state["s1"] = max(0, min(65535, int(s1)))
+    if s2 is not None:
+        _state["s2"] = max(0, min(65535, int(s2)))
+
+    _send_frame()
+
+
+def get_encoder(timeout: float = 1.0) -> tuple[int, int]:
+    """Read encoder values from the serial port.
+
+    Expects data in format: [m1,m2] where m1 and m2 are signed integers.
+    Examples: [0,0], [-123,23], [1234567,-1234567]
+
+    Args:
+        timeout: Seconds to wait for a response (default 1.0).
+
+    Returns:
+        Tuple of (m1, m2) encoder values.
+    """
+    ser = serial.Serial(DEFAULT_PORT, BAUDRATE, timeout=timeout)
+    try:
+        data = ser.read(ser.in_waiting or 64).decode("utf-8", errors="ignore").strip()
+
+        # Parse [m1,m2] pattern from received data
+        match = re.search(r"\[\s*(-?\d+)\s*,\s*(-?\d+)\s*\]", data)
+        if match:
+            return int(match.group(1)), int(match.group(2))
+
+        raise ValueError(f"No encoder data found. Received: {repr(data)}")
+    finally:
+        ser.close()
+
+
+__all__ = ["motor", "servo", "get_encoder"]
