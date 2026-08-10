@@ -8,7 +8,7 @@ Python library for sending 11-byte control frames over UART to an STM32 microcon
 |--------|------------|------------|------------|------------|----------|--------|
 | 0x0D   | 2 bytes    | 2 bytes    | 2 bytes    | 2 bytes    | 1 byte   | 0x20   |
 
-All values are **big-endian uint16**. Motor PWM range: **-65535 to +65535** (positive = forward, negative = backward). Servo PWM range: **0–65535**. Direction is encoded in the dir byte (bit 0 = motor1, bit 1 = motor2).
+All PWM values are **big-endian uint16**. Motor PWM range: **0 to 65535** (dir 1 = forward, dir 0 = backward). Servo PWM range: **0 to 65535**. Direction is encoded in the dir byte (bit 0 = motor1, bit 1 = motor2).
 
 ## Encoder Response Format
 
